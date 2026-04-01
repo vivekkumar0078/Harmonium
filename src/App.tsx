@@ -8,8 +8,16 @@ class HarmoniumSynth {
   masterFilter: BiquadFilterNode;
   convolver: ConvolverNode;
   reverbGain: GainNode;
+  chorusDelay: DelayNode;
+  chorusLFO: OscillatorNode;
+  chorusGain: GainNode;
+  bellowsLFO: OscillatorNode | null = null;
+  bellowsGain: GainNode;
   preset: string = 'classic';
   transpose: number = 0;
+  couplerEnabled: boolean = false;
+  fineTune: number = 440;
+  chorusEnabled: boolean = false;
 
   constructor() {
     this.ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -17,6 +25,9 @@ class HarmoniumSynth {
     
     this.masterGain = this.ctx.createGain();
     this.masterGain.gain.value = 0.4;
+
+    this.bellowsGain = this.ctx.createGain();
+    this.bellowsGain.gain.value = 1.0;
 
     this.masterFilter = this.ctx.createBiquadFilter();
     this.masterFilter.type = 'lowpass';
@@ -28,12 +39,56 @@ class HarmoniumSynth {
     this.convolver = this.ctx.createConvolver();
     this.generateImpulseResponse();
 
-    this.masterGain.connect(this.masterFilter);
+    // Chorus setup
+    this.chorusDelay = this.ctx.createDelay();
+    this.chorusDelay.delayTime.value = 0.03;
+    this.chorusLFO = this.ctx.createOscillator();
+    this.chorusLFO.frequency.value = 1.5;
+    this.chorusGain = this.ctx.createGain();
+    this.chorusGain.gain.value = 0.002;
+    const lfoGain = this.ctx.createGain();
+    lfoGain.gain.value = 0.002;
+    this.chorusLFO.connect(lfoGain);
+    lfoGain.connect(this.chorusDelay.delayTime);
+    this.chorusLFO.start();
+
+    this.masterGain.connect(this.bellowsGain);
+    this.bellowsGain.connect(this.masterFilter);
+    
+    // Chorus path
+    this.masterFilter.connect(this.chorusDelay);
+    this.chorusDelay.connect(this.ctx.destination);
+    
+    // Direct path
     this.masterFilter.connect(this.ctx.destination);
     
+    // Reverb path
     this.masterGain.connect(this.convolver);
     this.convolver.connect(this.reverbGain);
     this.reverbGain.connect(this.ctx.destination);
+
+    this.startBellowsLFO();
+    this.setChorus(false);
+  }
+
+  setChorus(enabled: boolean) {
+    this.chorusEnabled = enabled;
+    this.chorusDelay.delayTime.setTargetAtTime(enabled ? 0.03 : 0, this.ctx.currentTime, 0.1);
+  }
+
+  startBellowsLFO() {
+    const lfo = this.ctx.createOscillator();
+    const lfoGain = this.ctx.createGain();
+    
+    lfo.type = 'sine';
+    lfo.frequency.value = 2.5; // Slow bellows fluctuation
+    lfoGain.gain.value = 0.05; // Subtle effect
+    
+    lfo.connect(lfoGain);
+    lfoGain.connect(this.bellowsGain.gain);
+    
+    lfo.start();
+    this.bellowsLFO = lfo;
   }
 
   generateImpulseResponse() {
@@ -70,11 +125,30 @@ class HarmoniumSynth {
     this.transpose = semitones;
   }
 
+  setCoupler(enabled: boolean) {
+    this.couplerEnabled = enabled;
+  }
+
+  setFineTune(hz: number) {
+    this.fineTune = hz;
+  }
+
   playNote(note: string, baseFreq: number) {
     if (this.activeNodes.has(note)) return;
 
-    const freq = baseFreq * Math.pow(2, this.transpose / 12);
+    // Use fineTune instead of hardcoded 440 ratio if needed, 
+    // but here baseFreq is already calculated. We adjust it relative to 440.
+    const freqRatio = this.fineTune / 440;
+    const freq = baseFreq * freqRatio * Math.pow(2, this.transpose / 12);
 
+    this.renderNote(note, freq);
+    
+    if (this.couplerEnabled) {
+      this.renderNote(`${note}_coupler`, freq * 2);
+    }
+  }
+
+  private renderNote(noteId: string, freq: number) {
     const osc1 = this.ctx.createOscillator();
     const osc2 = this.ctx.createOscillator();
     const osc3 = this.ctx.createOscillator();
@@ -128,11 +202,18 @@ class HarmoniumSynth {
     osc2.start();
     osc3.start();
 
-    this.activeNodes.set(note, { osc1, osc2, osc3, gainNode });
+    this.activeNodes.set(noteId, { osc1, osc2, osc3, gainNode });
   }
 
   stopNote(note: string) {
-    const nodes = this.activeNodes.get(note);
+    this.releaseNote(note);
+    if (this.couplerEnabled) {
+      this.releaseNote(`${note}_coupler`);
+    }
+  }
+
+  private releaseNote(noteId: string) {
+    const nodes = this.activeNodes.get(noteId);
     if (!nodes) return;
 
     const { osc1, osc2, osc3, gainNode } = nodes;
@@ -152,7 +233,7 @@ class HarmoniumSynth {
       } catch (e) {}
     }, 200);
 
-    this.activeNodes.delete(note);
+    this.activeNodes.delete(noteId);
   }
 }
 
@@ -266,7 +347,12 @@ const SONGS: Record<string, {n: string, f: number, t: number, d: number}[]> = {
     { n: 'C5', f: 523.25, t: 2400, d: 800 },
     { n: 'C5', f: 523.25, t: 3600, d: 400 }, { n: 'B4', f: 493.88, t: 4000, d: 400 }, { n: 'A4', f: 440.00, t: 4400, d: 400 },
     { n: 'G4', f: 392.00, t: 4800, d: 400 }, { n: 'F#4', f: 369.99, t: 5200, d: 400 }, { n: 'E4', f: 329.63, t: 5600, d: 400 },
-    { n: 'D4', f: 293.66, t: 6000, d: 400 }, { n: 'C4', f: 261.63, t: 6400, d: 800 }
+    { n: 'D4', f: 293.66, t: 6000, d: 400 }, { n: 'C4', f: 261.63, t: 6400, d: 800 },
+    // Pakad: N R G, R G, P M G, R S
+    { n: 'B3', f: 246.94, t: 7600, d: 400 }, { n: 'D4', f: 293.66, t: 8000, d: 400 }, { n: 'E4', f: 329.63, t: 8400, d: 800 },
+    { n: 'D4', f: 293.66, t: 9600, d: 400 }, { n: 'E4', f: 329.63, t: 10000, d: 800 },
+    { n: 'G4', f: 392.00, t: 11200, d: 400 }, { n: 'F#4', f: 369.99, t: 11600, d: 400 }, { n: 'E4', f: 329.63, t: 12000, d: 800 },
+    { n: 'D4', f: 293.66, t: 13200, d: 400 }, { n: 'C4', f: 261.63, t: 13600, d: 800 }
   ],
   'raga_bhairav': [
     { n: 'C4', f: 261.63, t: 0, d: 400 }, { n: 'C#4', f: 277.18, t: 400, d: 400 }, { n: 'E4', f: 329.63, t: 800, d: 400 },
@@ -274,13 +360,81 @@ const SONGS: Record<string, {n: string, f: number, t: number, d: number}[]> = {
     { n: 'B4', f: 493.88, t: 2400, d: 400 }, { n: 'C5', f: 523.25, t: 2800, d: 800 },
     { n: 'C5', f: 523.25, t: 4000, d: 400 }, { n: 'B4', f: 493.88, t: 4400, d: 400 }, { n: 'G#4', f: 415.30, t: 4800, d: 400 },
     { n: 'G4', f: 392.00, t: 5200, d: 400 }, { n: 'F4', f: 349.23, t: 5600, d: 400 }, { n: 'E4', f: 329.63, t: 6000, d: 400 },
-    { n: 'C#4', f: 277.18, t: 6400, d: 400 }, { n: 'C4', f: 261.63, t: 6800, d: 800 }
+    { n: 'C#4', f: 277.18, t: 6400, d: 400 }, { n: 'C4', f: 261.63, t: 6800, d: 800 },
+    // Pakad: G M d P, G M r S
+    { n: 'E4', f: 329.63, t: 8000, d: 400 }, { n: 'F4', f: 349.23, t: 8400, d: 400 }, { n: 'G#4', f: 415.30, t: 8800, d: 400 }, { n: 'G4', f: 392.00, t: 9200, d: 800 },
+    { n: 'E4', f: 329.63, t: 10400, d: 400 }, { n: 'F4', f: 349.23, t: 10800, d: 400 }, { n: 'C#4', f: 277.18, t: 11200, d: 400 }, { n: 'C4', f: 261.63, t: 11600, d: 800 }
   ],
   'raga_hansadhwani': [
     { n: 'C4', f: 261.63, t: 0, d: 400 }, { n: 'D4', f: 293.66, t: 400, d: 400 }, { n: 'E4', f: 329.63, t: 800, d: 400 },
     { n: 'G4', f: 392.00, t: 1200, d: 400 }, { n: 'B4', f: 493.88, t: 1600, d: 400 }, { n: 'C5', f: 523.25, t: 2000, d: 800 },
     { n: 'C5', f: 523.25, t: 3200, d: 400 }, { n: 'B4', f: 493.88, t: 3600, d: 400 }, { n: 'G4', f: 392.00, t: 4000, d: 400 },
-    { n: 'E4', f: 329.63, t: 4400, d: 400 }, { n: 'D4', f: 293.66, t: 4800, d: 400 }, { n: 'C4', f: 261.63, t: 5200, d: 800 }
+    { n: 'E4', f: 329.63, t: 4400, d: 400 }, { n: 'D4', f: 293.66, t: 4800, d: 400 }, { n: 'C4', f: 261.63, t: 5200, d: 800 },
+    // Characteristic phrase
+    { n: 'G4', f: 392.00, t: 6400, d: 400 }, { n: 'B4', f: 493.88, t: 6800, d: 400 }, { n: 'C5', f: 523.25, t: 7200, d: 800 },
+    { n: 'B4', f: 493.88, t: 8400, d: 400 }, { n: 'G4', f: 392.00, t: 8800, d: 400 }, { n: 'E4', f: 329.63, t: 9200, d: 400 }, { n: 'D4', f: 293.66, t: 9600, d: 400 }, { n: 'C4', f: 261.63, t: 10000, d: 800 }
+  ],
+  'jana_gana_mana': [
+    { n: 'C4', f: 261.63, t: 0, d: 300 }, { n: 'D4', f: 293.66, t: 400, d: 300 }, { n: 'E4', f: 329.63, t: 800, d: 300 }, { n: 'E4', f: 329.63, t: 1200, d: 300 },
+    { n: 'E4', f: 329.63, t: 1600, d: 300 }, { n: 'E4', f: 329.63, t: 2000, d: 300 }, { n: 'E4', f: 329.63, t: 2400, d: 300 }, { n: 'E4', f: 329.63, t: 2800, d: 300 },
+    { n: 'E4', f: 329.63, t: 3200, d: 300 }, { n: 'D4', f: 293.66, t: 3600, d: 300 }, { n: 'E4', f: 329.63, t: 4000, d: 300 }, { n: 'F4', f: 349.23, t: 4400, d: 600 },
+    { n: 'E4', f: 329.63, t: 5200, d: 300 }, { n: 'E4', f: 329.63, t: 5600, d: 300 }, { n: 'E4', f: 329.63, t: 6000, d: 300 }, { n: 'D4', f: 293.66, t: 6400, d: 300 },
+    { n: 'D4', f: 293.66, t: 6800, d: 300 }, { n: 'D4', f: 293.66, t: 7200, d: 300 }, { n: 'B3', f: 246.94, t: 7600, d: 300 }, { n: 'D4', f: 293.66, t: 8000, d: 300 }, { n: 'C4', f: 261.63, t: 8400, d: 600 },
+    // Punjab Sindhu Gujarat Maratha...
+    { n: 'G4', f: 392.00, t: 9200, d: 300 }, { n: 'G4', f: 392.00, t: 9600, d: 300 }, { n: 'G4', f: 392.00, t: 10000, d: 300 }, { n: 'G4', f: 392.00, t: 10400, d: 300 },
+    { n: 'G4', f: 392.00, t: 10800, d: 300 }, { n: 'G4', f: 392.00, t: 11200, d: 300 }, { n: 'F#4', f: 369.99, t: 11600, d: 300 }, { n: 'A4', f: 440.00, t: 12000, d: 300 }, { n: 'G4', f: 392.00, t: 12400, d: 600 },
+    { n: 'F4', f: 349.23, t: 13200, d: 300 }, { n: 'F4', f: 349.23, t: 13600, d: 300 }, { n: 'F4', f: 349.23, t: 14000, d: 300 }, { n: 'E4', f: 329.63, t: 14400, d: 300 },
+    { n: 'D4', f: 293.66, t: 14800, d: 300 }, { n: 'F4', f: 349.23, t: 15200, d: 300 }, { n: 'E4', f: 329.63, t: 15600, d: 600 },
+    // Tava shubha name jage...
+    { n: 'E4', f: 329.63, t: 16400, d: 300 }, { n: 'F4', f: 349.23, t: 16800, d: 300 }, { n: 'G4', f: 392.00, t: 17200, d: 300 }, { n: 'G4', f: 392.00, t: 17600, d: 300 },
+    { n: 'F4', f: 349.23, t: 18000, d: 300 }, { n: 'E4', f: 329.63, t: 18400, d: 300 }, { n: 'D4', f: 293.66, t: 18800, d: 300 }, { n: 'F4', f: 349.23, t: 19200, d: 300 }, { n: 'E4', f: 329.63, t: 19600, d: 600 },
+    // Tava shubha ashisha mage...
+    { n: 'E4', f: 329.63, t: 20400, d: 300 }, { n: 'F4', f: 349.23, t: 20800, d: 300 }, { n: 'G4', f: 392.00, t: 21200, d: 300 }, { n: 'G4', f: 392.00, t: 21600, d: 300 },
+    { n: 'F4', f: 349.23, t: 22000, d: 300 }, { n: 'E4', f: 329.63, t: 22400, d: 300 }, { n: 'D4', f: 293.66, t: 22800, d: 300 }, { n: 'F4', f: 349.23, t: 23200, d: 300 }, { n: 'E4', f: 329.63, t: 23600, d: 600 },
+    // Gahe tava jaya gatha...
+    { n: 'E4', f: 329.63, t: 24400, d: 300 }, { n: 'E4', f: 329.63, t: 24800, d: 300 }, { n: 'D4', f: 293.66, t: 25200, d: 300 }, { n: 'G4', f: 392.00, t: 25600, d: 300 },
+    { n: 'G4', f: 392.00, t: 26000, d: 300 }, { n: 'F4', f: 349.23, t: 26400, d: 300 }, { n: 'F4', f: 349.23, t: 26800, d: 300 }, { n: 'E4', f: 329.63, t: 27200, d: 600 },
+    // Jana gana mangala dayaka jaya he...
+    { n: 'C4', f: 261.63, t: 28000, d: 300 }, { n: 'D4', f: 293.66, t: 28400, d: 300 }, { n: 'E4', f: 329.63, t: 28800, d: 300 }, { n: 'E4', f: 329.63, t: 29200, d: 300 },
+    { n: 'E4', f: 329.63, t: 29600, d: 300 }, { n: 'D4', f: 293.66, t: 30000, d: 300 }, { n: 'F4', f: 349.23, t: 30400, d: 300 }, { n: 'E4', f: 329.63, t: 30800, d: 600 },
+    // Bharata bhagya vidhata...
+    { n: 'D4', f: 293.66, t: 31600, d: 300 }, { n: 'D4', f: 293.66, t: 32000, d: 300 }, { n: 'D4', f: 293.66, t: 32400, d: 300 }, { n: 'B3', f: 246.94, t: 32800, d: 300 },
+    { n: 'D4', f: 293.66, t: 33200, d: 300 }, { n: 'C4', f: 261.63, t: 33600, d: 600 },
+    // Jaya he, jaya he, jaya he...
+    { n: 'B4', f: 493.88, t: 34400, d: 400 }, { n: 'C5', f: 523.25, t: 34800, d: 400 }, { n: 'B4', f: 493.88, t: 35200, d: 400 }, { n: 'A4', f: 440.00, t: 35600, d: 400 },
+    { n: 'B4', f: 493.88, t: 36000, d: 400 }, { n: 'A4', f: 440.00, t: 36400, d: 400 }, { n: 'G4', f: 392.00, t: 36800, d: 400 }, { n: 'A4', f: 440.00, t: 37200, d: 400 },
+    // Jaya jaya jaya jaya he!
+    { n: 'C4', f: 261.63, t: 38000, d: 200 }, { n: 'D4', f: 293.66, t: 38200, d: 200 }, { n: 'E4', f: 329.63, t: 38400, d: 200 }, { n: 'F4', f: 349.23, t: 38600, d: 200 },
+    { n: 'G4', f: 392.00, t: 38800, d: 800 }
+  ],
+  'vaishnav_jan_to': [
+    { n: 'C4', f: 261.63, t: 0, d: 400 }, { n: 'F4', f: 349.23, t: 500, d: 400 }, { n: 'E4', f: 329.63, t: 1000, d: 400 }, { n: 'F4', f: 349.23, t: 1500, d: 400 },
+    { n: 'G4', f: 392.00, t: 2000, d: 400 }, { n: 'G4', f: 392.00, t: 2500, d: 400 }, { n: 'A4', f: 440.00, t: 3000, d: 400 }, { n: 'G4', f: 392.00, t: 3500, d: 400 },
+    { n: 'F4', f: 349.23, t: 4000, d: 400 }, { n: 'E4', f: 329.63, t: 4500, d: 400 }, { n: 'D4', f: 293.66, t: 5000, d: 400 }, { n: 'C4', f: 261.63, t: 5500, d: 800 },
+    // Par-dukkhe upkar kare toye...
+    { n: 'C4', f: 261.63, t: 6500, d: 400 }, { n: 'D4', f: 293.66, t: 7000, d: 400 }, { n: 'E4', f: 329.63, t: 7500, d: 400 }, { n: 'F4', f: 349.23, t: 8000, d: 400 },
+    { n: 'G4', f: 392.00, t: 8500, d: 400 }, { n: 'A4', f: 440.00, t: 9000, d: 400 }, { n: 'B4', f: 493.88, t: 9500, d: 400 }, { n: 'C5', f: 523.25, t: 10000, d: 800 },
+    // Sakal lok ma sahune vande...
+    { n: 'C5', f: 523.25, t: 11000, d: 400 }, { n: 'B4', f: 493.88, t: 11500, d: 400 }, { n: 'A4', f: 440.00, t: 12000, d: 400 }, { n: 'G4', f: 392.00, t: 12500, d: 400 },
+    { n: 'F4', f: 349.23, t: 13000, d: 400 }, { n: 'E4', f: 329.63, t: 13500, d: 400 }, { n: 'D4', f: 293.66, t: 14000, d: 400 }, { n: 'C4', f: 261.63, t: 14500, d: 800 },
+    // Ninda na kare keni re...
+    { n: 'C4', f: 261.63, t: 15500, d: 400 }, { n: 'F4', f: 349.23, t: 16000, d: 400 }, { n: 'G4', f: 392.00, t: 16500, d: 400 }, { n: 'A4', f: 440.00, t: 17000, d: 400 },
+    { n: 'G4', f: 392.00, t: 17500, d: 400 }, { n: 'F4', f: 349.23, t: 18000, d: 400 }, { n: 'E4', f: 329.63, t: 18500, d: 400 }, { n: 'C4', f: 261.63, t: 19000, d: 800 }
+  ],
+  'lollipop_lagelu': [
+    { n: 'G4', f: 392.00, t: 0, d: 200 }, { n: 'G4', f: 392.00, t: 250, d: 200 }, { n: 'G4', f: 392.00, t: 500, d: 200 }, { n: 'A4', f: 440.00, t: 750, d: 200 },
+    { n: 'G4', f: 392.00, t: 1000, d: 200 }, { n: 'F4', f: 349.23, t: 1250, d: 200 }, { n: 'E4', f: 329.63, t: 1500, d: 200 }, { n: 'D4', f: 293.66, t: 1750, d: 400 },
+    { n: 'C4', f: 261.63, t: 2200, d: 400 }, { n: 'E4', f: 329.63, t: 2700, d: 200 }, { n: 'G4', f: 392.00, t: 3000, d: 400 },
+    // Kamariya kare lapa lap...
+    { n: 'C5', f: 523.25, t: 3500, d: 200 }, { n: 'C5', f: 523.25, t: 3750, d: 200 }, { n: 'B4', f: 493.88, t: 4000, d: 200 }, { n: 'A4', f: 440.00, t: 4250, d: 200 },
+    { n: 'G4', f: 392.00, t: 4500, d: 400 }, { n: 'F4', f: 349.23, t: 5000, d: 400 }, { n: 'G4', f: 392.00, t: 5500, d: 400 },
+    // Jab lagawelu tu lipistick...
+    { n: 'G4', f: 392.00, t: 6000, d: 200 }, { n: 'A4', f: 440.00, t: 6250, d: 200 }, { n: 'C5', f: 523.25, t: 6500, d: 400 }, { n: 'D5', f: 587.33, t: 7000, d: 400 },
+    { n: 'C5', f: 523.25, t: 7500, d: 400 }, { n: 'B4', f: 493.88, t: 8000, d: 400 }, { n: 'A4', f: 440.00, t: 8500, d: 400 },
+    // Hilela ara jila...
+    { n: 'G4', f: 392.00, t: 9000, d: 200 }, { n: 'G4', f: 392.00, t: 9250, d: 200 }, { n: 'G4', f: 392.00, t: 9500, d: 200 }, { n: 'A4', f: 440.00, t: 9750, d: 200 },
+    { n: 'G4', f: 392.00, t: 10000, d: 200 }, { n: 'F4', f: 349.23, t: 10250, d: 200 }, { n: 'E4', f: 329.63, t: 10500, d: 200 }, { n: 'D4', f: 293.66, t: 10750, d: 400 },
+    { n: 'C4', f: 261.63, t: 11200, d: 400 }, { n: 'E4', f: 329.63, t: 11700, d: 200 }, { n: 'G4', f: 392.00, t: 12000, d: 400 }
   ]
 };
 
@@ -323,6 +477,9 @@ export default function App() {
   const [reverb, setReverb] = useState(0.2);
   const [preset, setPreset] = useState('classic');
   const [transpose, setTranspose] = useState(0);
+  const [couplerEnabled, setCouplerEnabled] = useState(false);
+  const [fineTune, setFineTune] = useState(440);
+  const [chorusEnabled, setChorusEnabled] = useState(false);
 
   useEffect(() => {
     activeNotesRef.current = activeNotes;
@@ -460,6 +617,24 @@ export default function App() {
       audioEngine.current.setTranspose(transpose);
     }
   }, [transpose]);
+
+  useEffect(() => {
+    if (audioEngine.current) {
+      audioEngine.current.setCoupler(couplerEnabled);
+    }
+  }, [couplerEnabled]);
+
+  useEffect(() => {
+    if (audioEngine.current) {
+      audioEngine.current.setFineTune(fineTune);
+    }
+  }, [fineTune]);
+
+  useEffect(() => {
+    if (audioEngine.current) {
+      audioEngine.current.setChorus(chorusEnabled);
+    }
+  }, [chorusEnabled]);
 
   const initAudio = () => {
     if (!audioEngine.current) {
@@ -776,7 +951,10 @@ export default function App() {
   const isBellowsActive = activeNotes.size > 0 || activeDrones.size > 0;
 
   return (
-    <div className="min-h-screen bg-black flex flex-col font-sans select-none overflow-hidden relative">
+    <div className="min-h-screen bg-[#0a0502] flex flex-col font-sans select-none overflow-hidden relative">
+      {/* Soothing Background Effects */}
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_30%,#2a160b_0%,transparent_70%)] opacity-40 pointer-events-none animate-pulse-slow"></div>
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_10%_80%,#3e2312_0%,transparent_50%)] opacity-20 pointer-events-none animate-pulse-slower"></div>
       
       {/* Header / Controls */}
       <div className="absolute top-4 right-4 text-stone-400 flex gap-4 z-50">
@@ -790,13 +968,13 @@ export default function App() {
 
       {/* Settings Panel */}
       {showSettings && (
-        <div className="absolute top-16 right-4 bg-stone-900/90 backdrop-blur text-stone-200 p-4 rounded-lg shadow-2xl z-50 w-64 border border-stone-700">
-          <div className="flex justify-between items-center mb-4">
+        <div className="absolute top-16 right-4 bg-stone-900/90 backdrop-blur text-stone-200 p-4 rounded-lg shadow-2xl z-50 w-72 border border-stone-700 flex flex-col max-h-[70vh]">
+          <div className="flex justify-between items-center mb-4 flex-shrink-0">
             <h3 className="font-bold text-lg flex items-center gap-2"><SlidersHorizontal size={18}/> Settings</h3>
             <button onClick={() => setShowSettings(false)} className="hover:text-white"><X size={18}/></button>
           </div>
           
-          <div className="space-y-4 text-sm">
+          <div className="space-y-4 text-sm overflow-y-auto pr-2 custom-scrollbar">
             <div>
               <label className="block mb-1">Volume</label>
               <input type="range" min="0" max="1" step="0.01" value={volume} onChange={(e) => setVolume(parseFloat(e.target.value))} className="w-full accent-amber-600" />
@@ -816,7 +994,15 @@ export default function App() {
               <label className="block mb-1">Transpose (Semitones)</label>
               <div className="flex items-center gap-2">
                 <input type="range" min="-12" max="12" step="1" value={transpose} onChange={(e) => setTranspose(parseInt(e.target.value))} className="w-full accent-amber-600" />
-                <span className="w-6 text-right">{transpose > 0 ? `+${transpose}` : transpose}</span>
+                <span className="w-8 text-right font-mono">{transpose > 0 ? `+${transpose}` : transpose}</span>
+              </div>
+            </div>
+
+            <div>
+              <label className="block mb-1">Fine Tuning (A={fineTune}Hz)</label>
+              <div className="flex items-center gap-2">
+                <input type="range" min="430" max="450" step="0.1" value={fineTune} onChange={(e) => setFineTune(parseFloat(e.target.value))} className="w-full accent-amber-600" />
+                <span className="w-12 text-right font-mono text-xs">{fineTune}</span>
               </div>
             </div>
 
@@ -831,6 +1017,14 @@ export default function App() {
             </div>
 
             <div className="pt-2 border-t border-stone-700 space-y-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={couplerEnabled} onChange={(e) => setCouplerEnabled(e.target.checked)} className="accent-amber-600" />
+                <Music size={16} /> Octave Coupler
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={chorusEnabled} onChange={(e) => setChorusEnabled(e.target.checked)} className="accent-amber-600" />
+                <Activity size={16} /> Chorus Effect
+              </label>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={showVisualizer} onChange={(e) => setShowVisualizer(e.target.checked)} className="accent-amber-600" />
                 <Activity size={16} /> Show Visualizer & Particles
@@ -862,6 +1056,9 @@ export default function App() {
                   <option value="raga_yaman">Raga Yaman (Aaroh/Avaroh)</option>
                   <option value="raga_bhairav">Raga Bhairav (Aaroh/Avaroh)</option>
                   <option value="raga_hansadhwani">Raga Hansadhwani (Aaroh/Avaroh)</option>
+                  <option value="jana_gana_mana">Hindi: Jana Gana Mana</option>
+                  <option value="vaishnav_jan_to">Gujarati: Vaishnav Jan To</option>
+                  <option value="lollipop_lagelu">Bhojpuri: Lollipop Lagelu</option>
                   {recordedNotes.length > 0 && <option value="recording">Your Recording</option>}
                 </select>
               </div>
