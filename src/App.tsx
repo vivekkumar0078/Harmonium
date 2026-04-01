@@ -259,6 +259,28 @@ const SONGS: Record<string, {n: string, f: number, t: number, d: number}[]> = {
     { n: 'E4', f: 329.63, t: 800, d: 200 }, { n: 'E4', f: 329.63, t: 1000, d: 200 }, { n: 'E4', f: 329.63, t: 1200, d: 400 },
     { n: 'E4', f: 329.63, t: 1600, d: 200 }, { n: 'G4', f: 392.00, t: 1800, d: 200 }, { n: 'C4', f: 261.63, t: 2000, d: 300 }, { n: 'D4', f: 293.66, t: 2300, d: 100 },
     { n: 'E4', f: 329.63, t: 2400, d: 800 }
+  ],
+  'raga_yaman': [
+    { n: 'B3', f: 246.94, t: 0, d: 400 }, { n: 'D4', f: 293.66, t: 400, d: 400 }, { n: 'E4', f: 329.63, t: 800, d: 400 },
+    { n: 'F#4', f: 369.99, t: 1200, d: 400 }, { n: 'A4', f: 440.00, t: 1600, d: 400 }, { n: 'B4', f: 493.88, t: 2000, d: 400 },
+    { n: 'C5', f: 523.25, t: 2400, d: 800 },
+    { n: 'C5', f: 523.25, t: 3600, d: 400 }, { n: 'B4', f: 493.88, t: 4000, d: 400 }, { n: 'A4', f: 440.00, t: 4400, d: 400 },
+    { n: 'G4', f: 392.00, t: 4800, d: 400 }, { n: 'F#4', f: 369.99, t: 5200, d: 400 }, { n: 'E4', f: 329.63, t: 5600, d: 400 },
+    { n: 'D4', f: 293.66, t: 6000, d: 400 }, { n: 'C4', f: 261.63, t: 6400, d: 800 }
+  ],
+  'raga_bhairav': [
+    { n: 'C4', f: 261.63, t: 0, d: 400 }, { n: 'C#4', f: 277.18, t: 400, d: 400 }, { n: 'E4', f: 329.63, t: 800, d: 400 },
+    { n: 'F4', f: 349.23, t: 1200, d: 400 }, { n: 'G4', f: 392.00, t: 1600, d: 400 }, { n: 'G#4', f: 415.30, t: 2000, d: 400 },
+    { n: 'B4', f: 493.88, t: 2400, d: 400 }, { n: 'C5', f: 523.25, t: 2800, d: 800 },
+    { n: 'C5', f: 523.25, t: 4000, d: 400 }, { n: 'B4', f: 493.88, t: 4400, d: 400 }, { n: 'G#4', f: 415.30, t: 4800, d: 400 },
+    { n: 'G4', f: 392.00, t: 5200, d: 400 }, { n: 'F4', f: 349.23, t: 5600, d: 400 }, { n: 'E4', f: 329.63, t: 6000, d: 400 },
+    { n: 'C#4', f: 277.18, t: 6400, d: 400 }, { n: 'C4', f: 261.63, t: 6800, d: 800 }
+  ],
+  'raga_hansadhwani': [
+    { n: 'C4', f: 261.63, t: 0, d: 400 }, { n: 'D4', f: 293.66, t: 400, d: 400 }, { n: 'E4', f: 329.63, t: 800, d: 400 },
+    { n: 'G4', f: 392.00, t: 1200, d: 400 }, { n: 'B4', f: 493.88, t: 1600, d: 400 }, { n: 'C5', f: 523.25, t: 2000, d: 800 },
+    { n: 'C5', f: 523.25, t: 3200, d: 400 }, { n: 'B4', f: 493.88, t: 3600, d: 400 }, { n: 'G4', f: 392.00, t: 4000, d: 400 },
+    { n: 'E4', f: 329.63, t: 4400, d: 400 }, { n: 'D4', f: 293.66, t: 4800, d: 400 }, { n: 'C4', f: 261.63, t: 5200, d: 800 }
   ]
 };
 
@@ -837,6 +859,9 @@ export default function App() {
                   <option value="ode_to_joy">Ode to Joy</option>
                   <option value="happy_birthday">Happy Birthday</option>
                   <option value="jingle_bells">Jingle Bells</option>
+                  <option value="raga_yaman">Raga Yaman (Aaroh/Avaroh)</option>
+                  <option value="raga_bhairav">Raga Bhairav (Aaroh/Avaroh)</option>
+                  <option value="raga_hansadhwani">Raga Hansadhwani (Aaroh/Avaroh)</option>
                   {recordedNotes.length > 0 && <option value="recording">Your Recording</option>}
                 </select>
               </div>
