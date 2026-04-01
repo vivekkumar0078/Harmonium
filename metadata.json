@@ -1,0 +1,5 @@
+{
+  "name": "Virtual Harmonium",
+  "description": "A responsive, single-page web application of a Virtual Harmonium with realistic UI, Web Audio API sounds, and keyboard/touch controls.",
+  "requestFramePermissions": []
+}
